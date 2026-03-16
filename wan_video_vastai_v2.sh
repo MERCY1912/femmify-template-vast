@@ -29,6 +29,24 @@ fi
 echo ">>> Using python: $PYTHON"
 $PYTHON --version
 
+# ── Устанавливаем ComfyUI если нет main.py ────────────────
+if [ ! -f "$COMFYUI_DIR/main.py" ]; then
+    echo ">>> ComfyUI not found — installing..."
+    # Сохраняем уже скачанные модели и ноды
+    mv "$COMFYUI_DIR/models" /tmp/comfy_models_backup 2>/dev/null || true
+    mv "$COMFYUI_DIR/custom_nodes" /tmp/comfy_nodes_backup 2>/dev/null || true
+    rm -rf "$COMFYUI_DIR"
+    git clone --depth=1 https://github.com/comfyanonymous/ComfyUI.git "$COMFYUI_DIR"
+    cd "$COMFYUI_DIR"
+    $PYTHON -m pip install -q -r requirements.txt
+    # Восстанавливаем модели и ноды
+    [ -d /tmp/comfy_models_backup ] && cp -r /tmp/comfy_models_backup/. "$COMFYUI_DIR/models/" && rm -rf /tmp/comfy_models_backup
+    [ -d /tmp/comfy_nodes_backup ] && cp -r /tmp/comfy_nodes_backup/. "$COMFYUI_DIR/custom_nodes/" && rm -rf /tmp/comfy_nodes_backup
+    echo ">>> ComfyUI installed!"
+else
+    echo ">>> ComfyUI already installed"
+fi
+
 # ── Создаём папки ──────────────────────────────────────────
 mkdir -p "$MODELS_DIR/diffusion_models"
 mkdir -p "$MODELS_DIR/text_encoders"
