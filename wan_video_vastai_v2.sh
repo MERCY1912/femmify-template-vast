@@ -16,12 +16,24 @@ echo " Models: Wan2.1 I2V 720P (fp8) + RMBG"
 echo "========================================"
 echo ""
 
+# ── Находим python ─────────────────────────────────────────
+if command -v python3 &>/dev/null; then
+    PYTHON="python3"
+elif command -v python &>/dev/null; then
+    PYTHON="python"
+else
+    # vastai/comfy держит python в conda/venv
+    PYTHON=$(find /opt /usr /root -name "python3" -type f 2>/dev/null | head -1)
+    [ -z "$PYTHON" ] && PYTHON=$(find /opt /usr /root -name "python" -type f 2>/dev/null | head -1)
+fi
+echo ">>> Using python: $PYTHON"
+$PYTHON --version
+
 # ── Создаём папки ──────────────────────────────────────────
 mkdir -p "$MODELS_DIR/diffusion_models"
 mkdir -p "$MODELS_DIR/text_encoders"
 mkdir -p "$MODELS_DIR/vae"
 mkdir -p "$MODELS_DIR/clip_vision"
-mkdir -p "$MODELS_DIR/unet"
 
 # ── Системные пакеты ───────────────────────────────────────
 echo ">>> Installing system packages..."
@@ -30,8 +42,7 @@ apt-get install -y -qq aria2 ffmpeg git
 
 # ── Python зависимости ─────────────────────────────────────
 echo ">>> Installing Python packages..."
-pip install -q "huggingface_hub[cli]" rembg onnxruntime-gpu 2>/dev/null || \
-pip install -q "huggingface_hub[cli]" rembg onnxruntime 2>/dev/null || true
+$PYTHON -m pip install -q "huggingface_hub[cli]" rembg onnxruntime 2>/dev/null || true
 
 # ── Custom Nodes ───────────────────────────────────────────
 echo ">>> Installing custom nodes..."
@@ -46,7 +57,7 @@ install_node() {
         echo "  [install] $name"
         git clone --depth=1 "$repo" "$path" 2>/dev/null
         if [ -f "$path/requirements.txt" ]; then
-            pip install -q -r "$path/requirements.txt" 2>/dev/null || true
+            $PYTHON -m pip install -q -r "$path/requirements.txt" 2>/dev/null || true
         fi
     fi
 }
@@ -64,7 +75,6 @@ download_model() {
     local url="$1"
     local dest_dir="$2"
     local filename="${url##*/}"
-    # убираем query string если есть
     filename="${filename%%\?*}"
 
     if [ -f "$dest_dir/$filename" ]; then
@@ -75,27 +85,16 @@ download_model() {
     echo "  [download] $filename"
     if [ -n "$HF_TOKEN" ]; then
         wget --header="Authorization: Bearer $HF_TOKEN" \
-             -q --show-progress \
-             --content-disposition \
-             -P "$dest_dir" \
-             "$url" 2>&1 || \
-        aria2c --header="Authorization: Bearer $HF_TOKEN" \
-               -x 8 -s 8 -k 1M \
-               -d "$dest_dir" -o "$filename" \
-               "$url" 2>/dev/null
+             -q --show-progress --content-disposition \
+             -P "$dest_dir" "$url" 2>&1
     else
-        wget -q --show-progress \
-             --content-disposition \
-             -P "$dest_dir" \
-             "$url" 2>&1 || \
-        aria2c -x 8 -s 8 -k 1M \
-               -d "$dest_dir" -o "$filename" \
-               "$url" 2>/dev/null
+        wget -q --show-progress --content-disposition \
+             -P "$dest_dir" "$url" 2>&1
     fi
 }
 
 echo ""
-echo ">>> Downloading models (this will take 20-30 minutes)..."
+echo ">>> Downloading models..."
 
 # Wan2.1 I2V 720P fp8 (~14GB)
 download_model \
@@ -112,21 +111,26 @@ download_model \
     "https://huggingface.co/Kijai/WanVideo_comfy/resolve/main/Wan2_1_VAE_bf16.safetensors" \
     "$MODELS_DIR/vae"
 
-# CLIP Vision (~1.26GB) — официальный репозиторий Comfy-Org
+# CLIP Vision (~1.26GB)
 download_model \
     "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/clip_vision/clip_vision_h.safetensors" \
     "$MODELS_DIR/clip_vision"
 
 echo ""
 echo "========================================"
-echo " Setup complete!"
-echo " ComfyUI is available at port 18188"
+echo " Setup complete! Starting ComfyUI..."
 echo "========================================"
 echo ""
 
 # ── Запуск ComfyUI ─────────────────────────────────────────
-echo ">>> Starting ComfyUI on port 18188..."
 cd "$COMFYUI_DIR"
-python main.py --listen 0.0.0.0 --port 18188 --enable-cors-header &
 
-echo ">>> ComfyUI started. Open http://IP:18188 in your browser."
+# vastai/comfy обычно запускает ComfyUI через свой entrypoint,
+# но если нет — запускаем вручную
+if ! pgrep -f "main.py" > /dev/null 2>&1; then
+    echo ">>> Starting ComfyUI manually on port 8188..."
+    $PYTHON main.py --listen 0.0.0.0 --port 8188 --enable-cors-header &
+    echo ">>> ComfyUI started on port 8188"
+else
+    echo ">>> ComfyUI already running"
+fi
